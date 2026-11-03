@@ -1,0 +1,28 @@
+# Secretos y entornos
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Datos subidos y salidas
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+uploads/
+salidas/
+output/
+
+# Editor / SO
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consulta masiva de numeros de parte</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main class="contenedor">
+    <header>
+      <h1>Consulta masiva de n&uacute;meros de parte</h1>
+      <p class="sub">Sube un Excel (.xlsx) y descarga un CSV con el resultado de la consulta.</p>
+    </header>
+
+    <div id="mensaje" role="status" aria-live="polite" class="mensaje{% if error %} error{% elif aviso %} ok{% endif %}"{% if not error and not aviso %} hidden{% endif %}>{{ error or aviso or '' }}</div>
+
+    {% if not autenticado %}
+    <section class="tarjeta" aria-labelledby="titulo-acceso">
+      <h2 id="titulo-acceso">Acceso</h2>
+      <form method="post" action="{{ url_for('login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="password">Contrase&ntilde;a de acceso</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+      </form>
+      <p class="nota">Acceso provisional con contrase&ntilde;a compartida; no reemplaza el inicio de sesi&oacute;n corporativo (SSO).</p>
+    </section>
+    {% else %}
+    <section class="tarjeta" aria-labelledby="titulo-instrucciones">
+      <h2 id="titulo-instrucciones">Instrucciones</h2>
+      <ol>
+        <li>La <strong>primera fila</strong> debe tener un encabezado llamado exactamente <code>NUMERO_PARTE</code>, <code>NUMEROPARTE</code> o <code>NP</code> (sin importar may&uacute;sculas).</li>
+        <li>Se usa la hoja <code>CONSULTA</code> si existe; si no, la hoja activa.</li>
+        <li>Las celdas vac&iacute;as se omiten y los duplicados (sin distinguir may&uacute;sculas) se consultan una sola vez.</li>
+        <li>Para conservar ceros a la izquierda, guarde la columna como <strong>Texto</strong> en Excel.</li>
+        <li>L&iacute;mites: {{ max_mb }} MB, {{ '{:,}'.format(max_filas) }} filas con NP y {{ max_segundos }} segundos por consulta.</li>
+      </ol>
+    </section>
+
+    <section class="tarjeta" aria-labelledby="titulo-carga">
+      <h2 id="titulo-carga">Cargar archivo</h2>
+      <form id="form-consulta" method="post" action="{{ url_for('consultar') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="archivo">Archivo Excel (.xlsx)</label>
+        <input id="archivo" name="archivo" type="file" required
+               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+               aria-describedby="ayuda-archivo">
+        <p id="ayuda-archivo" class="nota">M&aacute;ximo {{ max_mb }} MB. La consulta puede tardar varios minutos; no cierre la p&aacute;gina.</p>
+        <button id="boton-consultar" type="submit">Consultar y descargar CSV</button>
+      </form>
+    </section>
+
+    <form method="post" action="{{ url_for('logout') }}" class="salir">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="secundario">Cerrar sesi&oacute;n</button>
+    </form>
+    {% endif %}
+  </main>
+</body>
+</html>
