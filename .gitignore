@@ -21,6 +21,13 @@ uploads/
 salidas/
 output/
 
+# Paquetes de despliegue y EB CLI (config local; puede contener nombres de cuenta/region)
+dist/
+*.zip
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+
 # Editor / SO
 .vscode/
 .idea/

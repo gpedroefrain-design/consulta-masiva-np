@@ -33,7 +33,7 @@ def main() -> int:
         return 2
     from waitress import serve
 
-    host = os.environ.get("HOST", "127.0.0.1")
+    host = app.config["CONSULTA_HOST"]
     port = int(os.environ.get("PORT", "8000"))
     timeout = int(os.environ.get("TIEMPO_MAXIMO_SEGUNDOS", "600")) + 60
     serve(app, host=host, port=port, threads=4, channel_timeout=timeout)

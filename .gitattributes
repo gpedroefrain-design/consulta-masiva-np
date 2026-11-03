@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Archivos que se ejecutan/leen en Linux (Elastic Beanstalk): siempre LF
+Procfile text eol=lf
+.platform/** text eol=lf
+.ebextensions/** text eol=lf

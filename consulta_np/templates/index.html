@@ -11,7 +11,7 @@
   <main class="contenedor">
     <header>
       <h1>Consulta masiva de n&uacute;meros de parte</h1>
-      <p class="sub">Sube un Excel (.xlsx) y descarga un CSV con el resultado de la consulta.</p>
+      <p class="sub">Sube un Excel (.xlsx) y descarga un Excel (.xlsx) con el resultado de la consulta.</p>
     </header>
 
     <div id="mensaje" role="status" aria-live="polite" class="mensaje{% if error %} error{% elif aviso %} ok{% endif %}"{% if not error and not aviso %} hidden{% endif %}>{{ error or aviso or '' }}</div>
@@ -29,18 +29,22 @@
     </section>
     {% else %}
     <section class="tarjeta" aria-labelledby="titulo-instrucciones">
-      <h2 id="titulo-instrucciones">Instrucciones</h2>
+      <details class="plegable" open>
+        <summary><h2 id="titulo-instrucciones">Instrucciones</h2></summary>
       <ol>
         <li>La <strong>primera fila</strong> debe tener un encabezado llamado exactamente <code>NUMERO_PARTE</code>, <code>NUMEROPARTE</code> o <code>NP</code> (sin importar may&uacute;sculas).</li>
         <li>Se usa la hoja <code>CONSULTA</code> si existe; si no, la hoja activa.</li>
         <li>Las celdas vac&iacute;as se omiten y los duplicados (sin distinguir may&uacute;sculas) se consultan una sola vez.</li>
         <li>Para conservar ceros a la izquierda, guarde la columna como <strong>Texto</strong> en Excel.</li>
         <li>L&iacute;mites: {{ max_mb }} MB, {{ '{:,}'.format(max_filas) }} filas con NP y {{ max_segundos }} segundos por consulta.</li>
+        <li>Puede usar el <strong>layout</strong> (hoja <code>CONSULTA</code>, encabezado <code>NP</code>): capture un NP por celda desde la <strong>fila 2</strong>. La columna ya tiene formato Texto; si pega datos, use &laquo;Pegar valores&raquo; y verifique que los ceros iniciales se conserven (solo se respetan los valores guardados como texto).</li>
       </ol>
+      </details>
     </section>
 
     <section class="tarjeta" aria-labelledby="titulo-carga">
       <h2 id="titulo-carga">Cargar archivo</h2>
+      <p class="layout"><a id="enlace-layout" class="boton-enlace" href="{{ url_for('descargar_layout') }}" download="layout_consulta_np.xlsx">Descargar layout</a></p>
       <form id="form-consulta" method="post" action="{{ url_for('consultar') }}" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label for="archivo">Archivo Excel (.xlsx)</label>
@@ -48,14 +52,16 @@
                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                aria-describedby="ayuda-archivo">
         <p id="ayuda-archivo" class="nota">M&aacute;ximo {{ max_mb }} MB. La consulta puede tardar varios minutos; no cierre la p&aacute;gina.</p>
-        <button id="boton-consultar" type="submit">Consultar y descargar CSV</button>
+        <button id="boton-consultar" type="submit">RUN</button>
       </form>
     </section>
 
+    {% if requiere_login %}
     <form method="post" action="{{ url_for('logout') }}" class="salir">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="secundario">Cerrar sesi&oacute;n</button>
     </form>
+    {% endif %}
     {% endif %}
   </main>
 </body>

@@ -1,0 +1,31 @@
+[Unit]
+Description=Consulta masiva de numeros de parte
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=consulta-np
+Group=consulta-np
+WorkingDirectory=/opt/consulta-masiva-np
+EnvironmentFile=/etc/consulta-np/app.env
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+Environment=APP_REQUIRE_LOGIN=true
+Environment=APP_COOKIE_SECURE=true
+Environment=APP_TRUST_PROXY=true
+Environment=MAX_UPLOAD_MB=10
+Environment=MAX_FILAS_NP=50000
+Environment=TIEMPO_MAXIMO_SEGUNDOS=600
+Environment=MAX_CONSULTAS_SIMULTANEAS=2
+ExecStart=/opt/consulta-masiva-np/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

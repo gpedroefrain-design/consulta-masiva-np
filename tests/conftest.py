@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 import requests
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from consulta_np.config import cargar_configuracion
 
@@ -94,3 +94,11 @@ def config(env):
 
 def extraer_csrf(html: str) -> str:
     return re.search(r'name="csrf_token" value="([^"]+)"', html).group(1)
+
+
+def leer_resultados(contenido: bytes):
+    """Abre el XLSX de resultados y devuelve (hoja, filas con valores)."""
+    libro = load_workbook(io.BytesIO(contenido))
+    assert libro.sheetnames == ["RESULTADOS"]
+    hoja = libro["RESULTADOS"]
+    return hoja, [list(fila) for fila in hoja.iter_rows(values_only=True)]

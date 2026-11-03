@@ -1,4 +1,4 @@
-"""Aplicacion web para consulta masiva de numeros de parte (Excel -> CSV)."""
+"""Aplicacion web para consulta masiva de numeros de parte (Excel -> XLSX)."""
 from __future__ import annotations
 
 import hmac
@@ -10,12 +10,13 @@ from datetime import datetime, timedelta
 from typing import Callable
 from urllib.parse import urlparse
 
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from .config import Configuracion, cargar_configuracion
-from .excel import ErrorEntrada, leer_numeros_excel
-from .salida import construir_filas, generar_csv
+from .config import Configuracion, cargar_configuracion, es_loopback
+from .excel import MIME_XLSX, NOMBRE_LAYOUT, ErrorEntrada, generar_layout, leer_numeros_excel
+from .salida import PREFIJO_NOMBRE_RESULTADOS, construir_filas, generar_xlsx
 from .tdx import ClienteTdx, ConfigApi, ErrorApi
 
 LOGGER = logging.getLogger(__name__)
@@ -59,7 +60,10 @@ def create_app(
         SESSION_COOKIE_NAME="consulta_np_sesion",
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         PROPAGATE_EXCEPTIONS=False,
+        CONSULTA_HOST=config.host,
     )
+    if config.trust_proxy:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
     semaforo = threading.BoundedSemaphore(config.max_consultas_simultaneas)
     limitador = _LimitadorLogin()
     max_mb = config.max_upload_bytes // (1024 * 1024)
@@ -81,12 +85,15 @@ def create_app(
         return bool(esperado) and hmac.compare_digest(enviado.encode(), esperado.encode())
 
     def autenticado() -> bool:
+        if not config.requiere_login:
+            return True
         return session.get("autenticado") is True
 
     def pagina(error: str | None = None, estado: int = 200, aviso: str | None = None) -> Response:
         html = render_template(
             "index.html",
             autenticado=autenticado(),
+            requiere_login=config.requiere_login,
             csrf_token=token_csrf(),
             error=error,
             aviso=aviso,
@@ -102,6 +109,16 @@ def create_app(
             respuesta.status_code = estado
             return respuesta
         return pagina(error=mensaje, estado=estado)
+
+    if not config.requiere_login:
+        LOGGER.warning("APP_REQUIRE_LOGIN=false: acceso sin contrasena, solo desde loopback (%s).", config.host)
+
+        @app.before_request
+        def solo_loopback():
+            # remote_addr es el par TCP real (no se confia en X-Forwarded-For).
+            if not es_loopback(request.remote_addr):
+                return fallo("Acceso permitido solo desde este equipo.", 403)
+            return None
 
     @app.after_request
     def cabeceras(respuesta: Response) -> Response:
@@ -123,8 +140,18 @@ def create_app(
     def salud() -> Response:
         return Response("ok", mimetype="text/plain")
 
+    @app.get("/layout")
+    def descargar_layout():
+        if not autenticado():
+            return fallo("Debe iniciar sesion.", 401)
+        respuesta = Response(generar_layout(), mimetype=MIME_XLSX)
+        respuesta.headers["Content-Disposition"] = f'attachment; filename="{NOMBRE_LAYOUT}"'
+        return respuesta
+
     @app.post("/login")
     def login():
+        if not config.requiere_login:
+            abort(404)
         if not csrf_valido():
             return fallo("La sesion del formulario expiro. Recargue la pagina e intente de nuevo.", 400)
         clave = request.remote_addr or "desconocido"
@@ -144,6 +171,8 @@ def create_app(
 
     @app.post("/logout")
     def logout():
+        if not config.requiere_login:
+            abort(404)
         if csrf_valido():
             session.clear()
         return redirect(url_for("inicio"), code=303)
@@ -171,7 +200,7 @@ def create_app(
             cliente = cliente_factory(config.api)
             respuestas = cliente.consultar(lectura.numeros)
             filas, encontrados, no_encontrados = construir_filas(lectura.numeros, respuestas)
-            datos = generar_csv(filas)
+            datos = generar_xlsx(filas)
         except ErrorEntrada as error:
             return fallo(str(error), 400)
         except ErrorApi as error:
@@ -184,8 +213,8 @@ def create_app(
             "Consulta completada: %s NP unicos, %s encontrados, %s no encontrados.",
             len(filas), encontrados, no_encontrados,
         )
-        nombre = "consulta_np_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
-        respuesta = Response(datos, mimetype="text/csv")
+        nombre = PREFIJO_NOMBRE_RESULTADOS + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
+        respuesta = Response(datos, mimetype=MIME_XLSX)
         respuesta.headers["Content-Disposition"] = f'attachment; filename="{nombre}"'
         respuesta.headers["X-Total-NP"] = str(len(filas))
         respuesta.headers["X-Encontrados"] = str(encontrados)

@@ -7,11 +7,14 @@ import zipfile
 from dataclasses import dataclass
 from typing import Any
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 
 COLUMNAS_ACEPTADAS = ("numero_parte", "numeroparte", "np")
 HOJA_PREFERIDA = "CONSULTA"
 LONGITUD_MAXIMA_NP = 100
+NOMBRE_LAYOUT = "layout_consulta_np.xlsx"
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 class ErrorEntrada(ValueError):
@@ -138,3 +141,20 @@ def leer_numeros_excel(contenido: bytes, limites: LimitesEntrada | None = None) 
     if not numeros:
         raise ErrorEntrada("El archivo no contiene numeros de parte para consultar.")
     return ResultadoLectura(numeros, filas_con_np, filas_con_np - len(numeros))
+
+def generar_layout() -> bytes:
+    """Plantilla vacia (hoja CONSULTA, encabezado NP) generada en memoria."""
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = HOJA_PREFERIDA
+    hoja["A1"] = "NP"
+    hoja["A1"].font = Font(bold=True)
+    hoja["A1"].number_format = "@"
+    # Formato Texto a nivel de columna: Excel lo aplica a las celdas nuevas sin crear filas vacias.
+    columna = hoja.column_dimensions["A"]
+    columna.width = 30
+    columna.number_format = "@"
+    hoja.freeze_panes = "A2"
+    buffer = io.BytesIO()
+    libro.save(buffer)
+    return buffer.getvalue()

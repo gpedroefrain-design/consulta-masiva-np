@@ -1,10 +1,15 @@
-"""Construccion del CSV de salida (mismo orden de columnas que el proceso original, sin UNSPSC)."""
+"""Construccion del XLSX de salida (mismo orden de columnas que el proceso original, sin UNSPSC)."""
 from __future__ import annotations
 
-import csv
 import io
 import re
 from typing import Any
+
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 from .excel import texto
 
@@ -16,8 +21,12 @@ COLUMNAS_SALIDA = [
 ]
 VALORES_ENCONTRADO = {"1", "true", "si", "s\u00ed"}
 OBSERVACION_NO_ENCONTRADO = "La API no devolvio un registro para este numero."
+HOJA_RESULTADOS = "RESULTADOS"
+PREFIJO_NOMBRE_RESULTADOS = "consulta_np_"
+MAX_CARACTERES_CELDA = 32_767
+MARCA_TRUNCADO = "...[truncado]"
+CARACTER_REEMPLAZO = "\ufffd"
 PREFIJOS_FORMULA = ("=", "\x40", "\t", "\r")
-APOSTROFO = "\x27"
 _NUMERO_CON_SIGNO = re.compile(r"^[+-][0-9]+([.,][0-9]+)?$")
 
 
@@ -42,24 +51,54 @@ def construir_filas(numeros: list[str], respuestas: list[dict[str, Any]]) -> tup
     return filas, encontrados, len(filas) - encontrados
 
 
-def neutralizar_formula(valor: Any) -> str:
-    """Evita que Excel interprete una celda como formula sin alterar valores normales."""
+def parece_formula(cadena: str) -> bool:
+    """True si Excel podria interpretar el texto como formula al editar la celda."""
+    if not cadena:
+        return False
+    return cadena.startswith(PREFIJOS_FORMULA) or (
+        cadena[0] in "+-" and not _NUMERO_CON_SIGNO.match(cadena)
+    )
+
+
+def valor_celda(valor: Any) -> str:
+    """Texto de la celda con la misma serializacion que el CSV anterior (str), apto para XLSX."""
     if valor is None:
         return ""
-    cadena = str(valor)
-    if not cadena:
-        return cadena
-    if cadena.startswith(PREFIJOS_FORMULA) or (
-        cadena[0] in "+-" and not _NUMERO_CON_SIGNO.match(cadena)
-    ):
-        return APOSTROFO + cadena
+    cadena = ILLEGAL_CHARACTERS_RE.sub(CARACTER_REEMPLAZO, str(valor))
+    if len(cadena) > MAX_CARACTERES_CELDA:
+        cadena = cadena[: MAX_CARACTERES_CELDA - len(MARCA_TRUNCADO)] + MARCA_TRUNCADO
     return cadena
 
 
-def generar_csv(filas: list[dict[str, Any]]) -> bytes:
-    buffer = io.StringIO(newline="")
-    escritor = csv.DictWriter(buffer, fieldnames=COLUMNAS_SALIDA, extrasaction="ignore")
-    escritor.writeheader()
+def _celda_texto(hoja, valor: Any) -> WriteOnlyCell | None:
+    cadena = valor_celda(valor)
+    if not cadena:
+        return None
+    celda = WriteOnlyCell(hoja, value=cadena)
+    # Tipo string explicito: openpyxl no lo guarda como formula aunque empiece con "=".
+    celda.data_type = "s"
+    if parece_formula(cadena):
+        celda.quotePrefix = True
+    return celda
+
+
+def generar_xlsx(filas: list[dict[str, Any]]) -> bytes:
+    libro = Workbook(write_only=True)
+    hoja = libro.create_sheet(HOJA_RESULTADOS)
+    for posicion in range(1, len(COLUMNAS_SALIDA) + 1):
+        columna = hoja.column_dimensions[get_column_letter(posicion)]
+        columna.width = 22
+        columna.number_format = "@"
+    hoja.freeze_panes = "A2"
+    negrita = Font(bold=True)
+    encabezado = []
+    for nombre in COLUMNAS_SALIDA:
+        celda = WriteOnlyCell(hoja, value=nombre)
+        celda.font = negrita
+        encabezado.append(celda)
+    hoja.append(encabezado)
     for fila in filas:
-        escritor.writerow({col: neutralizar_formula(fila.get(col)) for col in COLUMNAS_SALIDA})
-    return buffer.getvalue().encode("utf-8-sig")
+        hoja.append([_celda_texto(hoja, fila.get(col)) for col in COLUMNAS_SALIDA])
+    buffer = io.BytesIO()
+    libro.save(buffer)
+    return buffer.getvalue()

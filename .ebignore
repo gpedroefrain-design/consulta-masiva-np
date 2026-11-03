@@ -1,0 +1,51 @@
+# Exclusiones del paquete que crea la EB CLI (eb deploy). NO es .gitignore:
+# con este archivo presente la EB CLI no lee .gitignore, no usa git e incluye archivos
+# sin commit del directorio. Revise el contenido antes de desplegar.
+
+# Control de versiones y configuracion local de herramientas
+.git/
+.gitignore
+.gitattributes
+.elasticbeanstalk/
+.vscode/
+.idea/
+
+# Secretos y entornos locales (nunca se empaquetan)
+.env
+.env.*
+*.env
+.venv/
+venv/
+env/
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+credentials*
+
+# Python, pruebas y herramientas de desarrollo
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+tests/
+pytest.ini
+requirements-dev.txt
+empaquetar_eb.py
+
+# Datos, salidas y paquetes generados
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.zip
+uploads/
+salidas/
+output/
+dist/
+*.log
+
+# SO
+Thumbs.db
+.DS_Store

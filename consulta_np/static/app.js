@@ -13,7 +13,7 @@
 
   function nombreArchivo(cabecera) {
     var m = /filename="([^"]+)"/.exec(cabecera || "");
-    return m ? m[1] : "consulta_np.csv";
+    return m ? m[1] : "consulta_np.xlsx";
   }
 
   form.addEventListener("submit", function (evento) {

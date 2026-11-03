@@ -1,12 +1,13 @@
-import csv
 import io
+import re
 
 import pytest
 
 from consulta_np import create_app
 from consulta_np.config import ErrorConfiguracion, cargar_configuracion
+from consulta_np.excel import MIME_XLSX
 from consulta_np.tdx import ClienteTdx, ErrorApi
-from conftest import PASSWORD, SesionFalsa, eco_encontrados, extraer_csrf, respuesta, xlsx
+from conftest import PASSWORD, SesionFalsa, eco_encontrados, extraer_csrf, leer_resultados, respuesta, xlsx
 
 
 def fabrica(sesion):
@@ -74,6 +75,29 @@ def test_limite_intentos_login(cliente_web):
     assert login(cliente_web).status_code == 429
 
 
+def test_proxy_local_separa_limite_login_por_ip(env):
+    config = cargar_configuracion({**env, "APP_TRUST_PROXY": "true", "HOST": "127.0.0.1"})
+    cliente = create_app(config).test_client()
+
+    def login_desde(ip):
+        csrf = extraer_csrf(cliente.get("/").get_data(as_text=True))
+        return cliente.post(
+            "/login",
+            data={"csrf_token": csrf, "password": "incorrecta-000"},
+            headers={"X-Forwarded-For": ip},
+        )
+
+    for _ in range(5):
+        assert login_desde("203.0.113.10").status_code == 401
+    assert login_desde("203.0.113.10").status_code == 429
+    assert login_desde("203.0.113.11").status_code == 401
+
+
+def test_proxy_confiable_exige_bind_loopback(env):
+    with pytest.raises(ErrorConfiguracion, match="APP_TRUST_PROXY"):
+        cargar_configuracion({**env, "APP_TRUST_PROXY": "true", "HOST": "0.0.0.0"})
+
+
 def test_origen_cruzado_rechazado(cliente_web):
     csrf = extraer_csrf(cliente_web.get("/").get_data(as_text=True))
     r = cliente_web.post("/login", data={"csrf_token": csrf, "password": PASSWORD}, headers={"Origin": "https://malo.example"})
@@ -88,20 +112,22 @@ def test_consultar_requiere_sesion_y_csrf(cliente_web, sesion_api):
     assert sesion_api.llamadas == []
 
 
-def test_flujo_completo_excel_a_csv(cliente_web, sesion_api):
+def test_flujo_completo_excel_a_xlsx(cliente_web, sesion_api):
     login(cliente_web)
     r = subir(cliente_web, xlsx([["np"], ["A1"], ["b2"], [None], ["a1"], ["00123"]]))
     assert r.status_code == 200
-    assert r.mimetype == "text/csv"
-    assert r.headers["Content-Disposition"].startswith("attachment; filename=\"consulta_np_")
+    assert r.mimetype == MIME_XLSX
+    assert re.fullmatch(r'attachment; filename="consulta_np_\d{8}_\d{6}\.xlsx"', r.headers["Content-Disposition"])
+    assert r.headers["Cache-Control"] == "no-store"
     datos = r.get_data()
-    assert datos.startswith(b"\xef\xbb\xbf")
-    filas = list(csv.reader(io.StringIO(datos.decode("utf-8-sig"))))
+    assert datos.startswith(b"PK")
+    hoja, filas = leer_resultados(datos)
     assert filas[0] == ["numeroParteEnviado", "encontrado", "numeroParte", "numeroParteInterno", "fraccion",
                         "descripcionFactura", "descripcionPedimento", "pais", "unidadMedida", "marca", "modelo",
                         "tipoMercancia", "sustentoNormativo", "igiTasa", "observaciones"]
-    assert b"UNSPSC" not in datos and b"99999999" not in datos
+    assert "UNSPSC" not in str(filas) and "99999999" not in str(filas)
     assert [f[0] for f in filas[1:]] == ["A1", "b2", "00123"]
+    assert hoja["A4"].data_type == "s"
     assert [f[1] for f in filas[1:]] == ["1", "0", "0"]
     assert (r.headers["X-Encontrados"], r.headers["X-No-Encontrados"]) == ("1", "2")
     assert sesion_api.de("consulta")[0]["json"]["numeros"] == ["A1", "b2", "00123"]
@@ -112,7 +138,8 @@ def test_np_sin_registro_en_api(config):
     c = create_app(config, cliente_factory=fabrica(sesion)).test_client()
     login(c)
     r = subir(c, xlsx([["NP"], ["Z9"]]))
-    fila = list(csv.reader(io.StringIO(r.get_data().decode("utf-8-sig"))))[1]
+    assert r.mimetype == MIME_XLSX
+    fila = leer_resultados(r.get_data())[1][1]
     assert fila[0] == "Z9" and fila[1] == "0" and "no devolvio" in fila[-1]
 
 

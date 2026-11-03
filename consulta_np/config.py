@@ -1,6 +1,7 @@
 """Configuracion desde variables de entorno. Falla cerrado si falta algo obligatorio."""
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from typing import Mapping
@@ -10,7 +11,10 @@ from .tdx import ConfigApi
 
 LOGIN_URL_PREDETERMINADA = "https://auth.dicexapis.com/v1/login/access_token"
 CONSULTA_URL_PREDETERMINADA = "https://tdx4.dicexapis.com/jit/numeros_parte/masivo"
-OBLIGATORIAS = ("APP_SECRET_KEY", "APP_ACCESS_PASSWORD", "TDX_USERNAME", "TDX_PASSWORD", "TDX_CLI_ID")
+OBLIGATORIAS = ("APP_SECRET_KEY", "TDX_USERNAME", "TDX_PASSWORD", "TDX_CLI_ID")
+HOST_PREDETERMINADO = "127.0.0.1"
+_VERDADEROS = {"1", "true", "yes", "si", "on"}
+_FALSOS = {"0", "false", "no", "off"}
 
 
 class ErrorConfiguracion(RuntimeError):
@@ -21,6 +25,9 @@ class ErrorConfiguracion(RuntimeError):
 class Configuracion:
     secret_key: str
     access_password: str
+    requiere_login: bool
+    host: str
+    trust_proxy: bool
     cookie_secure: bool
     api: ConfigApi
     limites: LimitesEntrada
@@ -41,16 +48,52 @@ def _entero(env: Mapping[str, str], nombre: str, defecto: int, minimo: int, maxi
     return valor
 
 
+def _booleano(env: Mapping[str, str], nombre: str, defecto: bool) -> bool:
+    crudo = env.get(nombre, "").strip().lower()
+    if not crudo:
+        return defecto
+    if crudo in _VERDADEROS:
+        return True
+    if crudo in _FALSOS:
+        return False
+    raise ErrorConfiguracion(f"{nombre} debe ser true o false.")
+
+
+def es_loopback(direccion: str | None) -> bool:
+    """True solo para localhost o direcciones IP de loopback (127.0.0.0/8, ::1)."""
+    if not direccion:
+        return False
+    direccion = direccion.strip().strip("[]")
+    if direccion.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(direccion).is_loopback
+    except ValueError:
+        return False
+
+
 def cargar_configuracion(env: Mapping[str, str] | None = None) -> Configuracion:
     env = os.environ if env is None else env
-    faltantes = [n for n in OBLIGATORIAS if not env.get(n, "").strip()]
+    requiere_login = _booleano(env, "APP_REQUIRE_LOGIN", True)
+    host = env.get("HOST", "").strip() or HOST_PREDETERMINADO
+    trust_proxy = _booleano(env, "APP_TRUST_PROXY", False)
+    if trust_proxy and not es_loopback(host):
+        raise ErrorConfiguracion(
+            "APP_TRUST_PROXY=true solo se permite con HOST de loopback y un proxy local de confianza."
+        )
+    if not requiere_login and not es_loopback(host):
+        raise ErrorConfiguracion(
+            "APP_REQUIRE_LOGIN=false solo se permite con HOST de loopback (127.0.0.1, ::1 o localhost)."
+        )
+    obligatorias = OBLIGATORIAS + (("APP_ACCESS_PASSWORD",) if requiere_login else ())
+    faltantes = [n for n in obligatorias if not env.get(n, "").strip()]
     if faltantes:
         raise ErrorConfiguracion("Faltan variables de entorno obligatorias: " + ", ".join(faltantes))
     secret_key = env["APP_SECRET_KEY"].strip()
     if len(secret_key) < 32:
         raise ErrorConfiguracion("APP_SECRET_KEY debe tener al menos 32 caracteres.")
-    password = env["APP_ACCESS_PASSWORD"]
-    if len(password) < 12:
+    password = env["APP_ACCESS_PASSWORD"] if requiere_login else ""
+    if requiere_login and len(password) < 12:
         raise ErrorConfiguracion("APP_ACCESS_PASSWORD debe tener al menos 12 caracteres.")
     login_url = env.get("TDX_LOGIN_URL", "").strip() or LOGIN_URL_PREDETERMINADA
     consulta_url = env.get("TDX_QUERY_URL", "").strip() or CONSULTA_URL_PREDETERMINADA
@@ -70,6 +113,9 @@ def cargar_configuracion(env: Mapping[str, str] | None = None) -> Configuracion:
     return Configuracion(
         secret_key=secret_key,
         access_password=password,
+        requiere_login=requiere_login,
+        host=host,
+        trust_proxy=trust_proxy,
         cookie_secure=env.get("APP_COOKIE_SECURE", "true").strip().lower() not in {"0", "false", "no"},
         api=api,
         limites=LimitesEntrada(max_filas_np=_entero(env, "MAX_FILAS_NP", 50_000, 1, 200_000)),
